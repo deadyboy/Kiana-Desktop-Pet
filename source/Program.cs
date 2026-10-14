@@ -6,8 +6,9 @@ using System.Windows.Threading;
 namespace KianaPet {
  public static class Program {
   [STAThread]public static int Main(string[] args){
+   string testRoot=null;for(int i=0;i<args.Length-1;i++)if(args[i]=="--state-dir")testRoot=args[i+1];if(testRoot!=null)Store.Root=Path.GetFullPath(testRoot);
    if(Array.IndexOf(args,"--music-launch")>=0)return MusicLauncher.Run();
-   bool preview=Array.IndexOf(args,"--preview")>=0;string testRoot=null;for(int i=0;i<args.Length-1;i++)if(args[i]=="--state-dir")testRoot=args[i+1];if(testRoot!=null)Store.Root=Path.GetFullPath(testRoot);
+   bool preview=Array.IndexOf(args,"--preview")>=0;
    if(Array.IndexOf(args,"--bridge-check")>=0){using(Bridge bridge=new Bridge()){bridge.Poll(true).GetAwaiter().GetResult();Store.Atomic("bridge-check.json",bridge.Current);return bridge.Current.Connected?0:2;}}
    bool created;string suffix=preview?"Preview":System.Security.Principal.WindowsIdentity.GetCurrent().User.Value;
    using(Mutex single=new Mutex(true,"Local.KianaDesktopPet."+suffix,out created)){

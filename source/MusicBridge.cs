@@ -12,12 +12,13 @@ using Microsoft.Win32;
 namespace KianaPet {
  public sealed class MusicState {
   public bool Connected,Playing,CanToggle,CanPrevious,CanNext;
-  public string Title="",Artist="",Id="",Cover="",Label="等待网易云音乐连接";
+  public string Title="",Artist="",Id="",Cover="",Label="等待音乐连接",Source="";
   public double Position,Duration;public DateTime At=DateTime.UtcNow;
  }
  public sealed class MusicBridge:IDisposable {
   public const int Port=9436;
   public volatile MusicState Current=new MusicState();
+  readonly SmtcMusic smtc=new SmtcMusic();
   readonly HttpClient http=new HttpClient(new HttpClientHandler{UseProxy=false,AllowAutoRedirect=false}){Timeout=TimeSpan.FromSeconds(2)};
   readonly CancellationTokenSource shutdown=new CancellationTokenSource();
   public static object Get(object o,string k){var d=o as Dictionary<string,object>;return d!=null&&d.ContainsKey(k)?d[k]:null;}
@@ -30,12 +31,26 @@ namespace KianaPet {
     }}
    }return "";
   }
-  public async Task Poll(bool enabled){var next=new MusicState();if(!enabled){next.Label="音乐栏已关闭";Current=next;return;}try{
-   var d=Parse(await Evaluate(File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"assets","music-read.js")),false).ConfigureAwait(false));
-   next.Connected=Convert.ToBoolean(Get(d,"connected"));next.Title=Str(d,"title");next.Artist=Str(d,"artist");next.Id=Str(d,"id");next.Cover=Str(d,"cover");next.Playing=Convert.ToBoolean(Get(d,"playing"));next.CanToggle=Convert.ToBoolean(Get(d,"toggle"));next.CanPrevious=Convert.ToBoolean(Get(d,"previous"));next.CanNext=Convert.ToBoolean(Get(d,"next"));next.Position=Convert.ToDouble(Get(d,"position"));next.Duration=Convert.ToDouble(Get(d,"duration"));next.At=DateTime.UtcNow;
-   next.Label=next.Connected?"网易云音乐已连接 · "+(next.Playing?"正在播放":"已暂停"):"已连接客户端 · 请先选择歌曲";
-  }catch(Exception){next.Label="请使用“网易云音乐 桌宠联动”入口打开客户端";}Current=next;}
+  public static string FindSodaApp(){
+   foreach(var root in new[]{Registry.CurrentUser,Registry.LocalMachine})foreach(string key in new[]{@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",@"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"}){
+    using(var list=root.OpenSubKey(key)){if(list==null)continue;foreach(string name in list.GetSubKeyNames())using(var item=list.OpenSubKey(name)){if(item==null)continue;string display=Convert.ToString(item.GetValue("DisplayName"));if(display!="汽水音乐"&&(display==null||display.IndexOf("Soda",StringComparison.OrdinalIgnoreCase)<0))continue;
+     string dir=Convert.ToString(item.GetValue("InstallLocation")).Trim('"');if(dir.Length==0||!Directory.Exists(dir))continue;
+     try{var exe=Directory.GetFiles(dir,"SodaMusic.exe",SearchOption.AllDirectories).OrderByDescending(p=>p,StringComparer.OrdinalIgnoreCase).FirstOrDefault();if(exe!=null)return exe;}catch{}
+    }}
+   }return "";
+  }
+  public async Task Poll(bool enabled,string source){var next=new MusicState();if(!enabled){next.Label="音乐栏已关闭";Current=next;return;}
+   if(source!="soda")try{
+    var d=Parse(await Evaluate(File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"assets","music-read.js")),false).ConfigureAwait(false));
+    next.Connected=Convert.ToBoolean(Get(d,"connected"));next.Title=Str(d,"title");next.Artist=Str(d,"artist");next.Id=Str(d,"id");next.Cover=Str(d,"cover");next.Playing=Convert.ToBoolean(Get(d,"playing"));next.CanToggle=Convert.ToBoolean(Get(d,"toggle"));next.CanPrevious=Convert.ToBoolean(Get(d,"previous"));next.CanNext=Convert.ToBoolean(Get(d,"next"));next.Position=Convert.ToDouble(Get(d,"position"));next.Duration=Convert.ToDouble(Get(d,"duration"));next.At=DateTime.UtcNow;next.Source="netease";
+    next.Label=next.Connected?"网易云音乐已连接 · "+(next.Playing?"正在播放":"已暂停"):"已连接客户端 · 请先选择歌曲";Current=next;return;
+   }catch{}
+   if(source=="netease"){next.Source="netease";next.Label="请使用“音乐与工具栏 · 连接网易云音乐”入口打开客户端";Current=next;return;}
+   try{next=await smtc.Poll(source=="soda"?"soda":null).ConfigureAwait(false);}catch{next=new MusicState{Source="smtc"};}
+   if(!next.Connected)next.Label=source=="soda"?"请打开汽水音乐客户端并播放歌曲":"请使用“音乐与工具栏 · 连接网易云音乐”入口打开客户端，或播放汽水音乐";
+   Current=next;}
   public async Task<bool> Command(string action){if(action!="toggle"&&action!="previous"&&action!="next")return false;if(!Current.Connected||DateTime.UtcNow-Current.At>TimeSpan.FromSeconds(5))return false;
+   if(Current.Source=="smtc"){try{return await smtc.Command(action).ConfigureAwait(false);}catch{return false;}}
    string code=File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"assets","music-action.js"));try{return await Evaluate("("+code+")("+new JavaScriptSerializer().Serialize(action)+")",true).ConfigureAwait(false)=="clicked";}catch{return false;}
   }
   async Task<string> Evaluate(string expression,bool action){

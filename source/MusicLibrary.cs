@@ -21,14 +21,27 @@ namespace KianaPet {
    return result.OrderBy(l=>l.Time).ToList();
   }
   public void Update(MusicState state,bool lyrics){if(!state.Connected){id="";lyricId="";lines.Clear();Cover=null;generation++;lyricGeneration++;return;}if(id!=Identity(state)||coverUrl!=state.Cover){id=Identity(state);coverUrl=state.Cover;Cover=null;generation++;LoadCover(state.Cover,generation);}
-   if(!lyrics){lyricId="";lyricGeneration++;lines.Clear();lyricStatus="";return;}if(lyricId!=state.Id){lyricId=state.Id;lines.Clear();lyricStatus="正在载入歌词…";LoadLyrics(state.Id,++lyricGeneration);}
+   if(!lyrics){lyricId="";lyricGeneration++;lines.Clear();lyricStatus="";return;}string lyricKey=Identity(state);if(lyricId!=lyricKey){lyricId=lyricKey;lines.Clear();lyricStatus="正在载入歌词…";LoadLyrics(state,++lyricGeneration);}
   }
-  async void LoadLyrics(string song,int version){try{if(!Regex.IsMatch(song??"",@"^\d{1,20}$"))throw new Exception();string text=await http.GetStringAsync("https://music.163.com/api/song/lyric?id="+song+"&lv=-1&kv=-1&tv=-1");if(text.Length>512000)throw new Exception();var data=new JavaScriptSerializer{MaxJsonLength=512000}.DeserializeObject(text);string lrc=MusicBridge.Str(MusicBridge.Get(data,"lrc"),"lyric");if(version!=lyricGeneration||shutdown.IsCancellationRequested)return;lines=ParseLrc(lrc);lyricStatus=lines.Count>0?"♪":"这首歌暂无可用歌词";}catch{if(version==lyricGeneration&&!shutdown.IsCancellationRequested)lyricStatus="歌词暂不可用";}}
-  async void LoadCover(string url,int version){try{Uri uri;if(!Uri.TryCreate(url,UriKind.Absolute,out uri)||!(uri.Scheme=="https"||uri.Scheme=="http")||!uri.Host.EndsWith(".music.126.net",StringComparison.OrdinalIgnoreCase))return;var secure=new UriBuilder(uri){Scheme="https",Port=-1,Query="param=128y128"};byte[] data;using(var response=await http.GetAsync(secure.Uri,HttpCompletionOption.ResponseHeadersRead,shutdown.Token)){response.EnsureSuccessStatusCode();if(response.Content.Headers.ContentLength>1024*1024)return;using(var source=await response.Content.ReadAsStreamAsync())using(var dest=new MemoryStream()){byte[] buffer=new byte[8192];int read;while((read=await source.ReadAsync(buffer,0,buffer.Length,shutdown.Token))>0){dest.Write(buffer,0,read);if(dest.Length>1024*1024)return;}data=dest.ToArray();}}
+  async void LoadLyrics(MusicState state,int version){try{string song=state.Id;
+   if(!Regex.IsMatch(song??"",@"^\d{1,20}$")){
+    string query=Uri.EscapeDataString((state.Title+" "+state.Artist).Trim());if(query.Length==0)throw new Exception();
+    string found=await http.GetStringAsync("https://music.163.com/api/search/get?s="+query+"&type=1&limit=1");if(found.Length>256000)throw new Exception();
+    var result=new JavaScriptSerializer{MaxJsonLength=256000}.DeserializeObject(found);var songs=MusicBridge.Get(MusicBridge.Get(result,"result"),"songs") as object[];if(songs==null||songs.Length==0)throw new Exception();
+    song=Convert.ToString(MusicBridge.Get(songs[0],"id"));if(!Regex.IsMatch(song,@"^\d{1,20}$"))throw new Exception();
+   }
+   string text=await http.GetStringAsync("https://music.163.com/api/song/lyric?id="+song+"&lv=-1&kv=-1&tv=-1");if(text.Length>512000)throw new Exception();var data=new JavaScriptSerializer{MaxJsonLength=512000}.DeserializeObject(text);string lrc=MusicBridge.Str(MusicBridge.Get(data,"lrc"),"lyric");if(version!=lyricGeneration||shutdown.IsCancellationRequested)return;lines=ParseLrc(lrc);lyricStatus=lines.Count>0?"♪":"这首歌暂无可用歌词";}catch{if(version==lyricGeneration&&!shutdown.IsCancellationRequested)lyricStatus="歌词暂不可用";}}
+  async void LoadCover(string url,int version){try{
+   if(!string.IsNullOrEmpty(url)&&File.Exists(url)){
+    if(new FileInfo(url).Length>4*1024*1024)return;
+    var local=new BitmapImage();local.BeginInit();local.CacheOption=BitmapCacheOption.OnLoad;local.DecodePixelWidth=128;local.UriSource=new Uri(url);local.EndInit();local.Freeze();
+    if(version!=generation||shutdown.IsCancellationRequested)return;Cover=local;return;
+   }
+   Uri uri;if(!Uri.TryCreate(url,UriKind.Absolute,out uri)||!(uri.Scheme=="https"||uri.Scheme=="http")||!uri.Host.EndsWith(".music.126.net",StringComparison.OrdinalIgnoreCase))return;var secure=new UriBuilder(uri){Scheme="https",Port=-1,Query="param=128y128"};byte[] data;using(var response=await http.GetAsync(secure.Uri,HttpCompletionOption.ResponseHeadersRead,shutdown.Token)){response.EnsureSuccessStatusCode();if(response.Content.Headers.ContentLength>1024*1024)return;using(var source=await response.Content.ReadAsStreamAsync())using(var dest=new MemoryStream()){byte[] buffer=new byte[8192];int read;while((read=await source.ReadAsync(buffer,0,buffer.Length,shutdown.Token))>0){dest.Write(buffer,0,read);if(dest.Length>1024*1024)return;}data=dest.ToArray();}}
     if(version!=generation||shutdown.IsCancellationRequested)return;var image=new BitmapImage();using(var stream=new MemoryStream(data)){image.BeginInit();image.CacheOption=BitmapCacheOption.OnLoad;image.DecodePixelWidth=128;image.StreamSource=stream;image.EndInit();image.Freeze();}Cover=image;
    }catch{}}
   public static LyricCue CueAt(List<LyricLine> source,MusicState state,string status){double position=state.Position+(state.Playing?Math.Min(1.2,Math.Max(0,(DateTime.UtcNow-state.At).TotalSeconds)):0);var line=source.LastOrDefault(l=>l.Time<=position);if(line==null)return new LyricCue{Text=status,SampleAt=state.At};var next=source.FirstOrDefault(l=>l.Time>line.Time);return new LyricCue{Text=line.Text,Key=Identity(state)+":"+line.Time.ToString("R",System.Globalization.CultureInfo.InvariantCulture),Start=line.Time,End=next==null?state.Duration:next.Time,Position=position,SampleAt=state.At};}
-  public LyricCue Cue(MusicState state){return lyricId!=state.Id?new LyricCue():CueAt(lines,state,lyricStatus);}
+  public LyricCue Cue(MusicState state){return lyricId!=Identity(state)?new LyricCue():CueAt(lines,state,lyricStatus);}
   public string Line(MusicState state){return Cue(state).Text;}
   public void Dispose(){shutdown.Cancel();generation++;lyricGeneration++;http.Dispose();}
  }

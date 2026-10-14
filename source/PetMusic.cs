@@ -11,7 +11,7 @@ namespace KianaPet {
   bool MusicHovered{get{return musicWindow!=null&&musicWindow.IsVisible&&(musicWindow.IsMouseOver||musicWindow.IsDragging||musicWindow.KeyboardMode);}}
   bool MusicInteractionActive{get{return Settings.MusicEnabled&&(MusicHovered||clock.Elapsed.TotalSeconds<musicUntil);}}
   void StartMusic(){musicTimer.Interval=TimeSpan.FromMilliseconds(850);musicTimer.Tick+=PollMusic;if(!preview){musicTimer.Start();PollMusic(null,EventArgs.Empty);}}
-  async void PollMusic(object sender,EventArgs e){if(musicPolling||quitting)return;musicPolling=true;try{await Music.Poll(Settings.MusicEnabled);if(quitting)return;musicLibrary.Update(Music.Current,Settings.MusicEnabled&&Settings.MusicLyrics);RefreshMusicChorus();UpdateMusic();}finally{musicPolling=false;if(!quitting){musicFailures=Music.Current.Connected?0:musicFailures+1;double normal=!Settings.MusicEnabled||sessionLocked||!IsVisible?4:.85;musicTimer.Interval=TimeSpan.FromSeconds(Settings.ResourceSaving?PolishRules.RetrySeconds(musicFailures,normal):.85);}}}
+  async void PollMusic(object sender,EventArgs e){if(musicPolling||quitting)return;musicPolling=true;try{await Music.Poll(Settings.MusicEnabled,Settings.MusicSource);if(quitting)return;musicLibrary.Update(Music.Current,Settings.MusicEnabled&&Settings.MusicLyrics);RefreshMusicChorus();UpdateMusic();}finally{musicPolling=false;if(!quitting){musicFailures=Music.Current.Connected?0:musicFailures+1;double normal=!Settings.MusicEnabled||sessionLocked||!IsVisible?4:.85;musicTimer.Interval=TimeSpan.FromSeconds(Settings.ResourceSaving?PolishRules.RetrySeconds(musicFailures,normal):.85);}}}
   readonly MusicSurfaceAppearance toolbarMusicAppearance=new MusicSurfaceAppearance();
   void UpdateMusic(){try{UpdateMusicCard();}finally{UpdateToolbarTheme(clock.Elapsed.TotalSeconds);}}
   void UpdateMusicCard(){if(!Settings.MusicEnabled||!IsVisible||manualHidden||fullscreenHidden||pressed||dragging||!Music.Current.Connected||(!Settings.MusicPausedCard&&!Music.Current.Playing)||DateTime.UtcNow-Music.Current.At>TimeSpan.FromSeconds(6)){musicUntil=0;if(musicWindow!=null)musicWindow.HideSoft(true);return;}
@@ -20,15 +20,20 @@ namespace KianaPet {
    if(!show){if(musicWindow!=null)musicWindow.HideSoft(false);return;}
    if(musicWindow==null)musicWindow=new MusicWindow(this);var state=Music.Current;musicWindow.Refresh(state,musicLibrary.Line(state),musicLibrary.CoverFor(state),musicBusy,musicLibrary.Cue(state));musicWindow.ShowSoft();musicWindow.Follow(Bounds());
   }
-  public void FocusMusicControls(){if(!Settings.MusicEnabled||!Music.Current.Connected){Say("请先连接网易云音乐并开启音乐栏。",4);return;}musicUntil=clock.Elapsed.TotalSeconds+5;UpdateMusic();if(musicWindow!=null&&musicWindow.IsVisible)musicWindow.FocusControls();}
+  public void FocusMusicControls(){if(!Settings.MusicEnabled||!Music.Current.Connected){Say("请先连接网易云音乐或汽水音乐，并开启音乐栏。",4);return;}musicUntil=clock.Elapsed.TotalSeconds+5;UpdateMusic();if(musicWindow!=null&&musicWindow.IsVisible)musicWindow.FocusControls();}
   public void SetMusicPosition(string position){Settings.MusicPosition=position;if(position=="free"&&!Settings.MusicHasPosition&&musicWindow!=null)musicWindow.SavePosition();ApplySettings();}
   public void ResetMusicPosition(){RestoreMusicDock(Settings.MusicDefaultPosition);}
   public void RestoreMusicDock(string position){if(position!="below"&&position!="left"&&position!="right")return;Settings.MusicPosition=position;Settings.MusicHasPosition=false;ApplySettings();PositionMusic();UpdateMusic();}
   public void PositionMusic(){if(musicWindow!=null)musicWindow.Follow(Bounds(),true);}
-  public async void MusicCommand(string action){if(musicBusy)return;musicBusy=true;try{UpdateMusic();if(!await Music.Command(action))Say("音乐控制暂不可用，请重新连接网易云音乐。",4);await Music.Poll(Settings.MusicEnabled);musicLibrary.Update(Music.Current,Settings.MusicEnabled&&Settings.MusicLyrics);}finally{musicBusy=false;if(!quitting)UpdateMusic();}}
+  public async void MusicCommand(string action){if(musicBusy)return;musicBusy=true;try{UpdateMusic();if(!await Music.Command(action))Say("音乐控制暂不可用，请重新连接音乐。",4);await Music.Poll(Settings.MusicEnabled,Settings.MusicSource);musicLibrary.Update(Music.Current,Settings.MusicEnabled&&Settings.MusicLyrics);}finally{musicBusy=false;if(!quitting)UpdateMusic();}}
   async void RefreshMusicChorus(){await chorusLibrary.Update(Music.Current,Settings.MusicEnabled&&Settings.MusicChorusEnabled&&MusicReactions.Mode(Settings,Music.Current.Id)!="off");}
   void StopMusic(){chorusLibrary.Dispose();musicTimer.Stop();Music.Dispose();musicLibrary.Dispose();if(musicWindow!=null)musicWindow.Close();}
-  public void LaunchMusic(){musicFailures=0;musicTimer.Interval=TimeSpan.FromMilliseconds(850);try{Process.Start(new ProcessStartInfo{FileName=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"KianaDesktopPet.exe"),Arguments="--music-launch",WorkingDirectory=AppDomain.CurrentDomain.BaseDirectory,UseShellExecute=true});}catch(Exception e){MessageBox.Show("暂时无法打开网易云音乐："+e.Message,"网易云音乐");}}
+  public void SetMusicSource(string source){if(source!="auto"&&source!="netease"&&source!="soda")return;if(Settings.MusicSource==source)return;Settings.MusicSource=source;musicFailures=0;musicTimer.Interval=TimeSpan.FromMilliseconds(850);ApplySettings();PollMusic(null,EventArgs.Empty);}
+  public void LaunchMusic(){musicFailures=0;musicTimer.Interval=TimeSpan.FromMilliseconds(850);
+   if(Settings.MusicSource=="soda"){LaunchSoda();return;}
+   try{Process.Start(new ProcessStartInfo{FileName=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"KianaDesktopPet.exe"),Arguments="--music-launch --state-dir \""+Store.Root+"\"",WorkingDirectory=AppDomain.CurrentDomain.BaseDirectory,UseShellExecute=true});}catch(Exception e){MessageBox.Show("暂时无法打开音乐客户端："+e.Message,"音乐");}}
+  static void LaunchSoda(){string soda=MusicBridge.FindSodaApp();if(soda.Length==0){MessageBox.Show("没有找到汽水音乐客户端，请先安装客户端。","音乐");return;}
+   try{if(!CompanionLauncher.Running("SodaMusic"))Process.Start(new ProcessStartInfo{FileName=soda,WorkingDirectory=Path.GetDirectoryName(soda),UseShellExecute=true});}catch(Exception e){MessageBox.Show("暂时无法打开汽水音乐："+e.Message,"音乐");}}
  }
 }
 

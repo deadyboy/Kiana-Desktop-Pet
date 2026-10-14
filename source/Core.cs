@@ -43,6 +43,7 @@ namespace KianaPet {
   public int BackupKeepCount=3;
   public string[] MutedNoticeSources=new string[0];
   public bool MusicEnabled=true,MusicLyrics=false;
+  public string MusicSource="auto";
   public string MusicLyricScroll="bounce";
   public int MusicLyricSpeed=45,MusicLyricStartHold=700,MusicLyricEndHold=700;
   public bool ToolbarPinned=false,ToolbarFollowMusic=false,YieldToMenus=true;
@@ -68,6 +69,7 @@ namespace KianaPet {
    if(!PetHotkey.Valid(RecoverHotkeyModifiers,RecoverHotkeyKey)){RecoverHotkeyEnabled=false;RecoverHotkeyModifiers=PetHotkey.Control|PetHotkey.Alt;RecoverHotkeyKey=0x50;}
    if(!new[]{"below","left","right","free"}.Contains(MusicPosition))MusicPosition="below";
    if(!new[]{"below","left","right"}.Contains(MusicDefaultPosition))MusicDefaultPosition="below";
+   if(!new[]{"auto","netease","soda"}.Contains(MusicSource))MusicSource="auto";
    if(double.IsNaN(MusicX)||double.IsInfinity(MusicX)||double.IsNaN(MusicY)||double.IsInfinity(MusicY)){MusicX=MusicY=0;MusicHasPosition=false;}
    Size=Math.Max(96,Math.Min(320,Size)); IdleMinutes=Math.Max(1,Math.Min(120,IdleMinutes));
    TimeSpan a,b; if(!TimeSpan.TryParse(Bedtime,out a)||a.TotalHours<0||a.TotalHours>=24)Bedtime="02:00";

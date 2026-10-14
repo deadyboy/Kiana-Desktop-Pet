@@ -6,8 +6,16 @@ using System.Windows.Media;
 using System.Windows.Threading;
 namespace KianaPet {
  public static class MusicLauncher {
+  static int LaunchSoda(){string soda=MusicBridge.FindSodaApp();if(soda.Length==0){MessageBox.Show("没有找到汽水音乐客户端，请先安装客户端，再打开这个入口。","音乐");return 2;}
+   if(!SodaRunning())try{Process.Start(new ProcessStartInfo{FileName=soda,WorkingDirectory=System.IO.Path.GetDirectoryName(soda),UseShellExecute=true});}catch{}return 0;}
   static bool Running(){bool result=false;foreach(var p in Process.GetProcessesByName("cloudmusic")){result=true;p.Dispose();}return result;}
-  public static int Run(){string exe=MusicBridge.FindApp();if(exe.Length==0){MessageBox.Show("没有找到网易云音乐 Windows 客户端，请先安装客户端，再打开这个入口。","网易云音乐");return 2;}
+  static bool SodaRunning(){bool result=false;foreach(var p in Process.GetProcessesByName("SodaMusic")){result=true;p.Dispose();}return result;}
+  public static int Run(){string preferred="auto";try{preferred=Store.Load().MusicSource;}catch{}
+   if(preferred=="soda")return LaunchSoda();
+   string exe=MusicBridge.FindApp();if(exe.Length==0){
+   if(preferred=="netease"){MessageBox.Show("没有找到网易云音乐客户端，请先安装客户端，再打开这个入口。","音乐");return 2;}
+   return LaunchSoda();
+  }
    if(Native.TrustedMusicPort(MusicBridge.Port,exe)){Process.Start(new ProcessStartInfo{FileName=exe,UseShellExecute=true});return 0;}
    var app=new Application{ShutdownMode=ShutdownMode.OnMainWindowClose};var window=new Window{Title="网易云音乐",Width=440,Height=215,ResizeMode=ResizeMode.NoResize,WindowStartupLocation=WindowStartupLocation.CenterScreen,FontFamily=new FontFamily("Microsoft YaHei UI"),Background=Brushes.White};var stack=new StackPanel{Margin=new Thickness(24)};var title=new TextBlock{Text="准备连接网易云音乐",FontSize=19,FontWeight=FontWeights.SemiBold};var status=new TextBlock{TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,14,0,12),FontSize=13,Foreground=Brushes.DimGray};stack.Children.Add(title);stack.Children.Add(status);var cancel=new Button{Content="关闭",Width=75,Height=29,HorizontalAlignment=HorizontalAlignment.Right};cancel.Click+=delegate{window.Close();};stack.Children.Add(cancel);window.Content=stack;
    bool started=false;DateTime began=DateTime.UtcNow;var timer=new DispatcherTimer{Interval=TimeSpan.FromSeconds(1)};timer.Tick+=delegate{
